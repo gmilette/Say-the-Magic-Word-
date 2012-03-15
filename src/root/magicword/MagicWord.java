@@ -4,71 +4,124 @@
  */
 package root.magicword;
 
-import java.util.List;
+import java.util.ArrayList;
 
-import root.magicword.speech.SpeechGatheringActivity;
-import root.magicword.speech.TextSpeakerAndroid;
+import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
-import android.speech.tts.TextToSpeech.OnUtteranceCompletedListener;
+import android.speech.RecognizerIntent;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.TextToSpeech.OnInitListener;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
-public class MagicWord extends SpeechGatheringActivity implements OnUtteranceCompletedListener
+public class MagicWord extends Activity implements OnInitListener
 {
-    private TextSpeakerAndroid speaker;
+    private static final String TAG = "MagicWord";
     
     private TextView result;
     
-    /** Called when the activity is first created. */
+    private TextToSpeech tts;
+    
+    private Button speak;
+    
+    private int SPEECH_REQUEST_CODE = 1234;
+    
     @Override
     public void onCreate(Bundle savedInstanceState) 
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
         
-        speaker = new TextSpeakerAndroid(this);
-        
-        Button speak = (Button)findViewById(R.id.bt_speak);
+        speak = (Button)findViewById(R.id.bt_speak);
         speak.setOnClickListener(new View.OnClickListener()
         {
             @Override
             public void onClick(View v)
             {
-               gatherSpeech();
+                sendRecognizeIntent();
             }
         });
         
+        speak.setEnabled(false);
         result = (TextView)findViewById(R.id.tv_result);
+        
+        tts = new TextToSpeech(this, this);
     }
     
     @Override
-    public void onUtteranceCompleted(String utteranceId)
+    public void onInit(int status)
     {
-        //done speaking, execute some ui updates on the UIthread
-    }
-    
-    public void receiveWhatWasHeard(List<String> lastThingsHeard)
-    {
-        if (lastThingsHeard.size() == 0)
+        if (status == TextToSpeech.SUCCESS)
         {
-            speaker.say("Heard nothing", this);
+            speak.setEnabled(true);
         }
         else
         {
-            String mostLikelyThingHeard = lastThingsHeard.get(0);
-            String magicWord = this.getResources().getString(R.string.magicword);
-            if (mostLikelyThingHeard.equals(magicWord))
+            //failed to init
+            finish();
+        }
+        
+    }
+    
+    private void sendRecognizeIntent()
+    {
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Say the magic word");
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 100);
+        startActivityForResult(intent, SPEECH_REQUEST_CODE);
+    }
+
+    @Override
+    protected void
+            onActivityResult(int requestCode, int resultCode, Intent data)
+    {
+        if (requestCode == SPEECH_REQUEST_CODE)
+        {
+            if (resultCode == RESULT_OK)
             {
-                speaker.say("You said the magic word!", this);
+                ArrayList<String> matches = data
+                    .getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+                
+                if (matches.size() == 0)
+                {
+                    tts.speak("Heard nothing", TextToSpeech.QUEUE_FLUSH, null);
+                }
+                else
+                {
+                    String mostLikelyThingHeard = matches.get(0);
+                    String magicWord = this.getResources().getString(R.string.magicword);
+                    if (mostLikelyThingHeard.equals(magicWord))
+                    {
+                        tts.speak("You said the magic word!", TextToSpeech.QUEUE_FLUSH, null);
+                    }
+                    else
+                    {
+                        tts.speak("The magic word is not " + mostLikelyThingHeard + " try again", TextToSpeech.QUEUE_FLUSH, null);
+                    }
+                }
+                result.setText("heard: " + matches);
             }
             else
             {
-                speaker.say("It's not " + mostLikelyThingHeard + " try again", this);
+                Log.d(TAG, "result NOT ok");
             }
         }
-        result.setText("heard: " + lastThingsHeard);
-    }
 
+        super.onActivityResult(requestCode, resultCode, data);
+    }
     
+    @Override
+    protected void onDestroy()
+    {
+        if (tts != null)
+        {
+            tts.shutdown();
+        }
+        super.onDestroy();
+    }
 }
